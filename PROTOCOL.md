@@ -9,9 +9,19 @@ passed through headers of the requests.
 
 ## POST
 
+POST /register/
+    username/password
+    RETURN 200
+    RETURN
+
+Register user to serice.
+
 POST /login/
     username/password
     RETURN <login-token>
+
+Login user to service.
+
 
 POST /upload/yyyy/mm/dd/hh/mm/ss
     <multipart-data>
@@ -21,6 +31,12 @@ interested in. The date can't be preserved via other means, so we pass
 it in the url. The server can then modify the modtime accordingly.
 
 ## HEAD
+
+HEAD /status/
+    RETURN 200
+
+Status of service
+
 
 HEAD /exist/yyyy/mm/filename
     Auth-Token: Basic <login-token>
