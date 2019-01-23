@@ -17,6 +17,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -28,12 +29,31 @@ var (
 	cmdPort = "9876"
 )
 
+const (
+	minUsernameLength = 8
+	minPasswordLength = 8
+)
+
 type errorResponse struct {
 	Error string `json:"error"`
 }
 
 func init() {
 	flag.StringVar(&cmdPort, "port", cmdPort, "port to listen at")
+}
+
+func validatePassword(pass string) error {
+	if len(pass) < minPasswordLength {
+		return errors.New("problem registering user with small password")
+	}
+	return nil
+}
+
+func validateUsername(user string) error {
+	if len(user) < minUsernameLength {
+		return errors.New("problem registering user with small username")
+	}
+	return nil
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +96,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(regReq.Password) < 8 {
+	if len(regReq.Password) < minPasswordLength {
 		w.WriteHeader(400)
 		log.Println("problem registering user with small password")
 		errorResponse := errorResponse{Error: "passwords must be larger than 8 characters"}
@@ -89,7 +109,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(regReq.Username) < 8 {
+	if len(regReq.Username) < minUsernameLength {
 		w.WriteHeader(400)
 		log.Println("problem registering user with small username")
 		errorResponse := errorResponse{Error: "problem registering user with small username"}
@@ -127,6 +147,36 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := validateUsername(loginReq.Username); err != nil {
+		w.WriteHeader(400)
+		log.Println(err)
+
+		errRespJSON, err := json.Marshal(&errorResponse{
+			Error: err.Error(),
+		})
+		if err != nil {
+			return
+		}
+		w.Write(errRespJSON)
+		return
+	}
+
+	if err := validatePassword(loginReq.Password); err != nil {
+		w.WriteHeader(400)
+		log.Println(err)
+
+		errRespJSON, err := json.Marshal(&errorResponse{
+			Error: err.Error(),
+		})
+
+		if err != nil {
+			return
+		}
+		w.Write(errRespJSON)
+		return
+	}
+
+	loginUser(loginReq.Username, loginReq.Password)
 }
 
 func main() {

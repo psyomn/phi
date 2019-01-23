@@ -41,6 +41,10 @@ CREATE TABLE users (
 	insertUserSQL = `
 INSERT INTO users (username, password, salt) VALUES (?,?,?)
 `
+
+	loginUserSQL = `
+SELECT username, password, salt FROM users WHERE username = '?'
+`
 )
 
 const dbName = "phidb.sqlite3"
