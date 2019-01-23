@@ -1,7 +1,7 @@
 # Taken from github.com/RAttab/gonfork
 all: build verify test
 verify: vet lint
-test: test-cover test-race test-megacheck test-bench
+test: test-cover test-race test-staticcheck test-bench
 .PHONY: all verify test
 
 fmt:
@@ -55,9 +55,9 @@ test-bench:
 .PHONY: test-bench
 
 # https://github.com/dominikh/go-tools#tools
-test-megacheck:
+test-staticcheck:
 	@echo -- run more static checkers
-	megacheck ./...
+	staticcheck ./...
 
 .PHONY: test-megacheck
 
