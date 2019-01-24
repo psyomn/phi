@@ -1,4 +1,7 @@
 /*
+Package phi is a set of tools to get incoming pictures from devices to
+your server, and manage said space on those peripheral devices.
+
 Copyright 2019 Simon Symeonidis (psyomn)
 
 Licensed under the Apache License, Version 2.0 (the "License");
