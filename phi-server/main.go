@@ -135,48 +135,58 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
-	type login struct {
+	type loginRequest struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
 
-	var loginReq login
+	respondWithErrorFn := func(w http.ResponseWriter, err error) {
+		w.WriteHeader(http.StatusBadRequest)
+		log.Println(err)
+
+		errRespJSON, err := json.Marshal(&errorResponse{
+			Error: err.Error(),
+		})
+		if err != nil {
+			return
+		}
+		w.Write(errRespJSON)
+	}
+
+	var loginReq loginRequest
 	error := json.NewDecoder(r.Body).Decode(&loginReq)
 	if error != nil {
-		log.Println("problem parsing login request")
+		respondWithErrorFn(w, error)
 		return
 	}
 
 	if err := validateUsername(loginReq.Username); err != nil {
-		w.WriteHeader(400)
-		log.Println(err)
-
-		errRespJSON, err := json.Marshal(&errorResponse{
-			Error: err.Error(),
-		})
-		if err != nil {
-			return
-		}
-		w.Write(errRespJSON)
+		respondWithErrorFn(w, err)
 		return
 	}
 
 	if err := validatePassword(loginReq.Password); err != nil {
-		w.WriteHeader(400)
-		log.Println(err)
-
-		errRespJSON, err := json.Marshal(&errorResponse{
-			Error: err.Error(),
-		})
-
-		if err != nil {
-			return
-		}
-		w.Write(errRespJSON)
+		respondWithErrorFn(w, err)
 		return
 	}
 
-	loginUser(loginReq.Username, loginReq.Password)
+	token, err := login(loginReq.Username, loginReq.Password)
+	if err != nil {
+		respondWithErrorFn(w, err)
+		return
+	}
+
+	type tokenResponse struct {
+		Token string `json:"token"`
+	}
+
+	tokenJSON, err := json.Marshal(&tokenResponse{token})
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	w.Write(tokenJSON)
 }
 
 func main() {

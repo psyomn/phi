@@ -30,28 +30,22 @@ import (
 )
 
 const (
-	phiSchema = `
-CREATE TABLE users (
+	dbName = "phidb.sqlite3"
+
+	phiSchema = `CREATE TABLE users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username STRING UNIQUE,
   password STRING,
   salt BIGINT
-)
-`
-	insertUserSQL = `
-INSERT INTO users (username, password, salt) VALUES (?,?,?)
-`
-
-	loginUserSQL = `
-SELECT username, password, salt FROM users WHERE username = '?'
-`
+)`
+	insertUserSQL = `INSERT INTO users (username, password, salt) VALUES (?,?,?)`
+	loginUserSQL  = `SELECT username, password, salt FROM users WHERE username = '?'`
 )
 
-const dbName = "phidb.sqlite3"
-
-var dbHandle *sql.DB = nil
-
-var dbMutex sync.Mutex
+var (
+	dbHandle *sql.DB
+	dbMutex  sync.Mutex
+)
 
 func init() {
 	createDbIfNotExist()
@@ -100,6 +94,18 @@ func encryptPassword(password string) (string, int64) {
 	return string(hashedPassword), salt
 }
 
+func encryptPasswordWithSalt(password string, salt int64) string {
+	saltBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(saltBytes, uint64(salt))
+
+	saltedPassword := append(saltBytes, password...)
+	hashedPassword, err := bcrypt.GenerateFromPassword(saltedPassword, 14)
+	if err != nil {
+		panic(err)
+	}
+	return string(hashedPassword)
+}
+
 func registerUser(username, password string, mutex *sync.Mutex) error {
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -137,6 +143,55 @@ func registerUser(username, password string, mutex *sync.Mutex) error {
 	return nil
 }
 
-func login(user, password string) string {
-	return ""
+func login(username, password string) (string, error) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	db, err := getDb()
+	if err != nil {
+		return "", fmt.Errorf("could not open db to store user: %v", err)
+	}
+	defer db.Close()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return "", fmt.Errorf("could not start transaction: %v", err)
+	}
+
+	stmt, err := tx.Prepare(loginUserSQL)
+	if err != nil {
+		return "", err
+	}
+	defer stmt.Close()
+
+	{ // Check if password matches
+		var (
+			dbUsername string
+			dbPassword string
+			dbSalt     int64
+		)
+
+		err = stmt.QueryRow("1").Scan(
+			&dbUsername, &dbPassword, &dbSalt)
+
+		if err != nil {
+			return "", errors.New("user not found")
+		}
+
+		encryptedPass := encryptPasswordWithSalt(password, dbSalt)
+
+		if encryptedPass != dbPassword {
+			return "", errors.New("could not log in")
+		}
+	}
+
+	userToken := make([]byte, 8)
+	_, err = rand.Read(userToken)
+	if err != nil {
+		panic(err)
+	}
+	tokenInt := int64(binary.BigEndian.Uint64(userToken))
+	tokenHex := fmt.Sprintf("%x", tokenInt)
+
+	return tokenHex, nil
 }
