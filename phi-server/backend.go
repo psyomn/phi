@@ -21,6 +21,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -36,10 +37,10 @@ const (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username STRING UNIQUE,
   password STRING,
-  salt BIGINT
+  salt STRING
 )`
 	insertUserSQL = `INSERT INTO users (username, password, salt) VALUES (?,?,?)`
-	loginUserSQL  = `SELECT username, password, salt FROM users WHERE username = '?'`
+	loginUserSQL  = `SELECT username, password, salt FROM users WHERE username = ?`
 )
 
 var (
@@ -76,29 +77,25 @@ func createDbIfNotExist() {
 	}
 }
 
-func encryptPassword(password string) (string, int64) {
+func encryptPassword(password string) (string, string) {
 	saltBytes := make([]byte, 8)
 	_, err := rand.Read(saltBytes)
 	if err != nil {
 		panic(err)
 	}
-	salt := int64(binary.BigEndian.Uint64(saltBytes))
+	saltStr := string(saltBytes)
+	saltedPassword := []byte(saltStr + password)
 
-	saltedPassword := append(saltBytes, password...)
 	hashedPassword, err := bcrypt.GenerateFromPassword(saltedPassword, 14)
-
 	if err != nil {
 		panic(err)
 	}
 
-	return string(hashedPassword), salt
+	return string(hashedPassword), saltStr
 }
 
-func encryptPasswordWithSalt(password string, salt int64) string {
-	saltBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(saltBytes, uint64(salt))
-
-	saltedPassword := append(saltBytes, password...)
+func encryptPasswordWithSalt(password string, salt string) string {
+	saltedPassword := []byte(salt + password)
 	hashedPassword, err := bcrypt.GenerateFromPassword(saltedPassword, 14)
 	if err != nil {
 		panic(err)
@@ -110,7 +107,7 @@ func registerUser(username, password string, mutex *sync.Mutex) error {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	hashedPassword, salt := encryptPassword(password)
+	hashedPassword, saltStr := encryptPassword(password)
 	db, err := getDb()
 	if err != nil {
 		return fmt.Errorf("could not open db to store user: %v", err)
@@ -128,7 +125,7 @@ func registerUser(username, password string, mutex *sync.Mutex) error {
 	}
 	defer stmt.Close()
 
-	_, err = stmt.Exec(username, hashedPassword, salt)
+	_, err = stmt.Exec(username, hashedPassword, saltStr)
 	if err != nil {
 		tx.Rollback()
 
@@ -168,20 +165,22 @@ func login(username, password string) (string, error) {
 		var (
 			dbUsername string
 			dbPassword string
-			dbSalt     int64
+			dbSalt     string
 		)
+		const genericLoginError = "username or passwords do not match"
 
-		err = stmt.QueryRow("1").Scan(
+		err = stmt.QueryRow(username).Scan(
 			&dbUsername, &dbPassword, &dbSalt)
 
 		if err != nil {
-			return "", errors.New("user not found")
+			return "", errors.New(genericLoginError)
 		}
 
-		encryptedPass := encryptPasswordWithSalt(password, dbSalt)
+		passwordsMatchErr := bcrypt.CompareHashAndPassword(
+			[]byte(dbPassword), []byte(dbSalt+password))
 
-		if encryptedPass != dbPassword {
-			return "", errors.New("could not log in")
+		if passwordsMatchErr != nil {
+			return "", errors.New(genericLoginError)
 		}
 	}
 
