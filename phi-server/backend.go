@@ -18,10 +18,8 @@ package main
 import (
 	"crypto/rand"
 	"database/sql"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"sync"
@@ -29,6 +27,11 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
 )
+
+type serverState struct {
+	session map[string]string
+	mutex   sync.Mutex
+}
 
 const (
 	dbName = "phidb.sqlite3"
@@ -46,10 +49,12 @@ const (
 var (
 	dbHandle *sql.DB
 	dbMutex  sync.Mutex
+	srvState serverState
 )
 
 func init() {
 	createDbIfNotExist()
+	srvState.session = make(map[string]string)
 }
 
 func getDb() (*sql.DB, error) {
@@ -161,36 +166,40 @@ func login(username, password string) (string, error) {
 	}
 	defer stmt.Close()
 
-	{ // Check if password matches
-		var (
-			dbUsername string
-			dbPassword string
-			dbSalt     string
-		)
-		const genericLoginError = "username or passwords do not match"
+	//
+	// Check if password matches
+	//
+	var (
+		dbUsername string
+		dbPassword string
+		dbSalt     string
+	)
+	const genericLoginError = "username or passwords do not match"
 
-		err = stmt.QueryRow(username).Scan(
-			&dbUsername, &dbPassword, &dbSalt)
+	err = stmt.QueryRow(username).Scan(
+		&dbUsername, &dbPassword, &dbSalt)
 
-		if err != nil {
-			return "", errors.New(genericLoginError)
-		}
-
-		passwordsMatchErr := bcrypt.CompareHashAndPassword(
-			[]byte(dbPassword), []byte(dbSalt+password))
-
-		if passwordsMatchErr != nil {
-			return "", errors.New(genericLoginError)
-		}
+	if err != nil {
+		return "", errors.New(genericLoginError)
 	}
 
-	userToken := make([]byte, 8)
+	passwordsMatchErr := bcrypt.CompareHashAndPassword(
+		[]byte(dbPassword), []byte(dbSalt+password))
+
+	if passwordsMatchErr != nil {
+		return "", errors.New(genericLoginError)
+	}
+
+	userToken := make([]byte, 32)
 	_, err = rand.Read(userToken)
 	if err != nil {
 		panic(err)
 	}
-	tokenInt := int64(binary.BigEndian.Uint64(userToken))
-	tokenHex := fmt.Sprintf("%x", tokenInt)
+	tokenHex := fmt.Sprintf("%x", userToken)
+
+	srvState.mutex.Lock()
+	defer srvState.mutex.Unlock()
+	srvState.session[tokenHex] = dbUsername
 
 	return tokenHex, nil
 }
