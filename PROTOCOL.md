@@ -25,10 +25,9 @@ POST /login/
 
 Login user to service.
 
-POST /upload/
-    {"token": token,
-     "data": data,
-     "timestamp": timestamp}
+POST /upload/<filename>/<timestamp>
+    Header-Authentication: Basic token,
+    BODY: IMAGE DATA
     RETURN 400, on bad credentials
     RETURN 200, on success
     RETURN 500, on server go boom
