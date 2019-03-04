@@ -203,3 +203,7 @@ func login(username, password string) (string, error) {
 
 	return tokenHex, nil
 }
+
+func upload(filename, data, username string) error {
+	return errors.New("not implemented")
+}

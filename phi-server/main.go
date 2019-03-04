@@ -23,6 +23,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 )
 
 var (
@@ -40,6 +41,19 @@ type errorResponse struct {
 
 func init() {
 	flag.StringVar(&cmdPort, "port", cmdPort, "port to listen at")
+}
+
+func respondWithError(w http.ResponseWriter, err error) {
+	w.WriteHeader(http.StatusBadRequest)
+	log.Println(err)
+
+	errRespJSON, err := json.Marshal(&errorResponse{
+		Error: err.Error(),
+	})
+	if err != nil {
+		return
+	}
+	w.Write(errRespJSON)
 }
 
 func validatePassword(pass string) error {
@@ -140,39 +154,26 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 
-	respondWithErrorFn := func(w http.ResponseWriter, err error) {
-		w.WriteHeader(http.StatusBadRequest)
-		log.Println(err)
-
-		errRespJSON, err := json.Marshal(&errorResponse{
-			Error: err.Error(),
-		})
-		if err != nil {
-			return
-		}
-		w.Write(errRespJSON)
-	}
-
 	var loginReq loginRequest
 	error := json.NewDecoder(r.Body).Decode(&loginReq)
 	if error != nil {
-		respondWithErrorFn(w, error)
+		respondWithError(w, error)
 		return
 	}
 
 	if err := validateUsername(loginReq.Username); err != nil {
-		respondWithErrorFn(w, err)
+		respondWithError(w, err)
 		return
 	}
 
 	if err := validatePassword(loginReq.Password); err != nil {
-		respondWithErrorFn(w, err)
+		respondWithError(w, err)
 		return
 	}
 
 	token, err := login(loginReq.Username, loginReq.Password)
 	if err != nil {
-		respondWithErrorFn(w, err)
+		respondWithError(w, err)
 		return
 	}
 
@@ -189,10 +190,40 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	w.Write(tokenJSON)
 }
 
+func handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		err := errors.New("only post supported.")
+		respondWithError(w, err)
+		return
+	}
+
+	type upload struct {
+		Token     string    `json:"token"`
+		Data      string    `json:"data"`
+		Timestamp time.Time `json:"timestamp"`
+		Filename  string    `json:"filename"`
+	}
+
+	var uploadReq upload
+	err := json.NewDecoder(r.Body).Decode(&uploadReq)
+	if err != nil {
+		respondWithError(w, errors.New("received invalid json"))
+		return
+	}
+
+	if username, ok := srvState.session[uploadReq.Token]; !ok {
+		respondWithError(w, errors.New("please login first"))
+		return
+	}
+
+	upload(uploadReq.Filename, uploadReq.Data, username)
+}
+
 func main() {
 	http.HandleFunc("/status", handleStatus)
 	http.HandleFunc("/register", handleRegister)
 	http.HandleFunc("/login", handleLogin)
+	http.HandleFunc("/upload", handleUpload)
 
 	port := fmt.Sprintf(":%s", cmdPort)
 	log.Fatal(http.ListenAndServe(port, nil))
