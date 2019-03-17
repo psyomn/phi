@@ -18,17 +18,24 @@ package main
 import (
 	"crypto/rand"
 	"database/sql"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"log"
+	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
 )
+
+type serverState struct {
+	session map[string]string
+	mutex   sync.Mutex
+}
 
 const (
 	dbName = "phidb.sqlite3"
@@ -41,15 +48,20 @@ const (
 )`
 	insertUserSQL = `INSERT INTO users (username, password, salt) VALUES (?,?,?)`
 	loginUserSQL  = `SELECT username, password, salt FROM users WHERE username = ?`
+
+	// StoreDir is the directory where photos are stored
+	StoreDir = "./"
 )
 
 var (
 	dbHandle *sql.DB
 	dbMutex  sync.Mutex
+	srvState serverState
 )
 
 func init() {
 	createDbIfNotExist()
+	srvState.session = make(map[string]string)
 }
 
 func getDb() (*sql.DB, error) {
@@ -161,36 +173,77 @@ func login(username, password string) (string, error) {
 	}
 	defer stmt.Close()
 
-	{ // Check if password matches
-		var (
-			dbUsername string
-			dbPassword string
-			dbSalt     string
-		)
-		const genericLoginError = "username or passwords do not match"
+	//
+	// Check if password matches
+	//
+	var (
+		dbUsername string
+		dbPassword string
+		dbSalt     string
+	)
+	const genericLoginError = "username or passwords do not match"
 
-		err = stmt.QueryRow(username).Scan(
-			&dbUsername, &dbPassword, &dbSalt)
+	err = stmt.QueryRow(username).Scan(
+		&dbUsername, &dbPassword, &dbSalt)
 
-		if err != nil {
-			return "", errors.New(genericLoginError)
-		}
-
-		passwordsMatchErr := bcrypt.CompareHashAndPassword(
-			[]byte(dbPassword), []byte(dbSalt+password))
-
-		if passwordsMatchErr != nil {
-			return "", errors.New(genericLoginError)
-		}
+	if err != nil {
+		return "", errors.New(genericLoginError)
 	}
 
-	userToken := make([]byte, 8)
+	passwordsMatchErr := bcrypt.CompareHashAndPassword(
+		[]byte(dbPassword), []byte(dbSalt+password))
+
+	if passwordsMatchErr != nil {
+		return "", errors.New(genericLoginError)
+	}
+
+	userToken := make([]byte, 32)
 	_, err = rand.Read(userToken)
 	if err != nil {
 		panic(err)
 	}
-	tokenInt := int64(binary.BigEndian.Uint64(userToken))
-	tokenHex := fmt.Sprintf("%x", tokenInt)
+	tokenHex := fmt.Sprintf("%x", userToken)
+
+	srvState.mutex.Lock()
+	defer srvState.mutex.Unlock()
+	srvState.session[tokenHex] = dbUsername
 
 	return tokenHex, nil
+}
+
+func upload(path, username string, data io.ReadCloser) error {
+	parts := strings.Split(path, "/")
+	filename := parts[2]
+
+	timestamp, err := strconv.Atoi(parts[3])
+	if err != nil {
+		return err
+	}
+	date := time.Unix(int64(timestamp), 0)
+
+	imgDir := filepath.Join(
+		StoreDir,
+		username,
+		fmt.Sprintf("%d", date.Year()),
+		fmt.Sprintf("%d", date.Month()),
+		fmt.Sprintf("%d", date.Day()))
+
+	err = os.MkdirAll(imgDir, 0755)
+	if err != nil {
+		return err
+	}
+
+	imgPath := filepath.Join(imgDir, filename)
+	f, err := os.Create(imgPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = io.Copy(f, data)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

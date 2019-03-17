@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 )
 
@@ -39,7 +40,26 @@ type errorResponse struct {
 }
 
 func init() {
+	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime)
+
 	flag.StringVar(&cmdPort, "port", cmdPort, "port to listen at")
+}
+
+func respondWith(code int, w http.ResponseWriter, err error) {
+	w.WriteHeader(http.StatusBadRequest)
+	log.Println(err)
+
+	errRespJSON, err := json.Marshal(&errorResponse{
+		Error: err.Error(),
+	})
+	if err != nil {
+		return
+	}
+	w.Write(errRespJSON)
+}
+
+func respondWithError(w http.ResponseWriter, err error) {
+	respondWith(http.StatusInternalServerError, w, err)
 }
 
 func validatePassword(pass string) error {
@@ -140,39 +160,26 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 
-	respondWithErrorFn := func(w http.ResponseWriter, err error) {
-		w.WriteHeader(http.StatusBadRequest)
-		log.Println(err)
-
-		errRespJSON, err := json.Marshal(&errorResponse{
-			Error: err.Error(),
-		})
-		if err != nil {
-			return
-		}
-		w.Write(errRespJSON)
-	}
-
 	var loginReq loginRequest
 	error := json.NewDecoder(r.Body).Decode(&loginReq)
 	if error != nil {
-		respondWithErrorFn(w, error)
+		respondWithError(w, error)
 		return
 	}
 
 	if err := validateUsername(loginReq.Username); err != nil {
-		respondWithErrorFn(w, err)
+		respondWithError(w, err)
 		return
 	}
 
 	if err := validatePassword(loginReq.Password); err != nil {
-		respondWithErrorFn(w, err)
+		respondWithError(w, err)
 		return
 	}
 
 	token, err := login(loginReq.Username, loginReq.Password)
 	if err != nil {
-		respondWithErrorFn(w, err)
+		respondWithError(w, err)
 		return
 	}
 
@@ -189,10 +196,41 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	w.Write(tokenJSON)
 }
 
+func handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		err := errors.New("only post supported")
+		respondWithError(w, err)
+		return
+	}
+
+	auth := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
+	if auth[0] != "Token" {
+		respondWithError(w, errors.New("token authorization only supported"))
+		return
+	}
+	token := auth[1]
+
+	username, ok := srvState.session[token]
+	if !ok {
+		respondWithError(w, errors.New("please login"))
+		return
+	}
+
+	err := upload(r.URL.Path, username, r.Body)
+	if err != nil {
+		log.Println(err)
+		respondWith(
+			http.StatusInternalServerError,
+			w,
+			errors.New("internal server error"))
+	}
+}
+
 func main() {
 	http.HandleFunc("/status", handleStatus)
 	http.HandleFunc("/register", handleRegister)
 	http.HandleFunc("/login", handleLogin)
+	http.HandleFunc("/upload/", handleUpload)
 
 	port := fmt.Sprintf(":%s", cmdPort)
 	log.Fatal(http.ListenAndServe(port, nil))

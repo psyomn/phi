@@ -9,22 +9,40 @@ passed through headers of the requests.
 
 ## POST
 
+```nocode
 POST /register/
-    username/password
-    RETURN 200
-    RETURN
-
-Register user to serice.
+    Register user to serice.
+    {"username": username,
+     "password": password}
+    RETURN 400, if errors (eg, user exists, etc)
+    RETURN 200, with empty body
 
 POST /login/
-    username/password
-    RETURN <login-token>
+    {"username": username,
+     "password": password}
+    RETURN 200
+        {"token": token}
 
 Login user to service.
 
+POST /upload/<filename>/<timestamp>
+    Header/Authorization: token <token>
+    BODY: IMAGE DATA
+    RETURN 400, on bad credentials
+    RETURN 200, on success
+    RETURN 500, on server go boom
 
-POST /upload/yyyy/mm/dd/hh/mm/ss
-    <multipart-data>
+POST /manifest/
+    {"token": token,
+     "files": [filelist]}
+    RETURN 400, on bad credentials
+    RETURN 500, on server go boom
+    RETURN 200, on success
+        {"filename_1": <md5sum>,
+         "filename_2": <md5sum>,
+         ...
+         "filename_n": <md5sum>}
+```
 
 Assuming that the device store on itself the date that we are
 interested in. The date can't be preserved via other means, so we pass
@@ -36,19 +54,6 @@ HEAD /status/
     RETURN 200
 
 Status of service
-
-
-HEAD /exist/yyyy/mm/filename
-    Auth-Token: Basic <login-token>
-    RETURN 200 for yes, 404 for no
-
-Does the file exist?
-
-## GET
-
-GET /md5/yyyy/mm/dd/filename
-    Auth-Token: Basic <login-token>
-    RETURN md5 string of the file
 
 May be used later for checking what pictures have been shared between
 machines.
