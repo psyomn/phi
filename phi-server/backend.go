@@ -20,9 +20,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"golang.org/x/crypto/bcrypt"
@@ -44,6 +48,9 @@ const (
 )`
 	insertUserSQL = `INSERT INTO users (username, password, salt) VALUES (?,?,?)`
 	loginUserSQL  = `SELECT username, password, salt FROM users WHERE username = ?`
+
+	// StoreDir is the directory where photos are stored
+	StoreDir = "./"
 )
 
 var (
@@ -204,6 +211,40 @@ func login(username, password string) (string, error) {
 	return tokenHex, nil
 }
 
-func upload(filename, data, username string) error {
-	return errors.New("not implemented")
+func upload(path, username string, data io.ReadCloser) error {
+	// TODO need to rethink how to handle errors here
+
+	parts := strings.Split(path, "/")
+	filename := parts[2]
+
+	timestamp, err := strconv.Atoi(parts[3])
+	if err != nil {
+		return err
+	}
+	date := time.Unix(int64(timestamp), 0)
+
+	imgDir := filepath.Join(
+		StoreDir,
+		fmt.Sprintf("%d", date.Year()),
+		fmt.Sprintf("%d", date.Month()),
+		fmt.Sprintf("%d", date.Day()))
+
+	err = os.MkdirAll(imgDir, 0755)
+	if err != nil {
+		return err
+	}
+
+	imgPath := filepath.Join(imgDir, filename)
+	f, err := os.Create(imgPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = io.Copy(f, data)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

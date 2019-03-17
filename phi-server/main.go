@@ -22,8 +22,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
-	"time"
 )
 
 var (
@@ -192,38 +192,36 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func handleUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
-		err := errors.New("only post supported.")
+		err := errors.New("only post supported")
 		respondWithError(w, err)
 		return
 	}
 
-	type upload struct {
-		Token     string    `json:"token"`
-		Data      string    `json:"data"`
-		Timestamp time.Time `json:"timestamp"`
-		Filename  string    `json:"filename"`
+	auth := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
+	if auth[0] != "Token" {
+		respondWithError(w, errors.New("token authorization only supported"))
+		return
+	}
+	token := auth[1]
+
+	username, ok := srvState.session[token]
+	if !ok {
+		respondWithError(w, errors.New("please login"))
+		return
 	}
 
-	var uploadReq upload
-	err := json.NewDecoder(r.Body).Decode(&uploadReq)
+	err := upload(r.URL.Path, username, r.Body)
 	if err != nil {
-		respondWithError(w, errors.New("received invalid json"))
-		return
+		// 500 should be issued here instead
+		respondWithError(w, err)
 	}
-
-	if username, ok := srvState.session[uploadReq.Token]; !ok {
-		respondWithError(w, errors.New("please login first"))
-		return
-	}
-
-	upload(uploadReq.Filename, uploadReq.Data, username)
 }
 
 func main() {
 	http.HandleFunc("/status", handleStatus)
 	http.HandleFunc("/register", handleRegister)
 	http.HandleFunc("/login", handleLogin)
-	http.HandleFunc("/upload", handleUpload)
+	http.HandleFunc("/upload/", handleUpload)
 
 	port := fmt.Sprintf(":%s", cmdPort)
 	log.Fatal(http.ListenAndServe(port, nil))
