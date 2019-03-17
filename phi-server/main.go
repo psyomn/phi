@@ -40,10 +40,12 @@ type errorResponse struct {
 }
 
 func init() {
+	log.SetFlags(log.Llongfile | log.Ldate | log.Ltime)
+
 	flag.StringVar(&cmdPort, "port", cmdPort, "port to listen at")
 }
 
-func respondWithError(w http.ResponseWriter, err error) {
+func respondWith(code int, w http.ResponseWriter, err error) {
 	w.WriteHeader(http.StatusBadRequest)
 	log.Println(err)
 
@@ -54,6 +56,10 @@ func respondWithError(w http.ResponseWriter, err error) {
 		return
 	}
 	w.Write(errRespJSON)
+}
+
+func respondWithError(w http.ResponseWriter, err error) {
+	respondWith(http.StatusInternalServerError, w, err)
 }
 
 func validatePassword(pass string) error {
@@ -212,8 +218,11 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	err := upload(r.URL.Path, username, r.Body)
 	if err != nil {
-		// 500 should be issued here instead
-		respondWithError(w, err)
+		log.Println(err)
+		respondWith(
+			http.StatusInternalServerError,
+			w,
+			errors.New("internal server error"))
 	}
 }
 

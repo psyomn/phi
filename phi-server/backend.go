@@ -212,8 +212,6 @@ func login(username, password string) (string, error) {
 }
 
 func upload(path, username string, data io.ReadCloser) error {
-	// TODO need to rethink how to handle errors here
-
 	parts := strings.Split(path, "/")
 	filename := parts[2]
 
@@ -225,6 +223,7 @@ func upload(path, username string, data io.ReadCloser) error {
 
 	imgDir := filepath.Join(
 		StoreDir,
+		username,
 		fmt.Sprintf("%d", date.Year()),
 		fmt.Sprintf("%d", date.Month()),
 		fmt.Sprintf("%d", date.Day()))
