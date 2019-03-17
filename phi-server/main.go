@@ -40,7 +40,7 @@ type errorResponse struct {
 }
 
 func init() {
-	log.SetFlags(log.Llongfile | log.Ldate | log.Ltime)
+	log.SetFlags(log.Lshortfile | log.Ldate | log.Ltime)
 
 	flag.StringVar(&cmdPort, "port", cmdPort, "port to listen at")
 }
